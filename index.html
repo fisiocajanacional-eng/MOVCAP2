@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOVCAP - Evaluación Postural</title>
+
+<!-- Scripts CDN de MediaPipe (versiones fijadas) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+<!-- Generador de PDF (jsPDF) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+
+<style>
+  :root{
+    --bg:#0f111a; --panel:#171b27; --line:#232936; --txt:#e3e6ed; --muted:#8892b0;
+    --accent:#4af6c3; --ok:#2ecc71; --warn:#f1c40f; --bad:#ff4d4d;
+  }
+  *{box-sizing:border-box}
+  body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;background:var(--bg);color:var(--txt);padding:16px 12px 40px}
+  header{text-align:center;margin-bottom:12px}
+  h1{margin:0 0 4px;font-size:1.4rem;color:var(--accent)}
+  header p{margin:0;font-size:.9rem;color:var(--muted)}
+  .tabs{display:flex;gap:8px;justify-content:center;margin:12px 0 16px;flex-wrap:wrap}
+  .tab,.btn{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:.9rem;cursor:pointer;font-family:inherit}
+  .tab:hover,.btn:hover{border-color:var(--accent)}
+  .tab.active{background:var(--accent);color:#0f111a;border-color:var(--accent);font-weight:600}
+  .btn.primary{background:var(--accent);color:#0f111a;border-color:var(--accent);font-weight:600}
+  .btn.rec{border-color:var(--bad);color:var(--bad)}
+  .btn.rec.on{background:var(--bad);color:#fff}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .layout{display:grid;grid-template-columns:1fr;gap:16px;max-width:1200px;margin:0 auto}
+  @media(min-width:960px){.layout{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}}
+  .container{position:relative;width:100%;max-height:72vh;aspect-ratio:4/3;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.5);border:2px solid var(--line);margin:0 auto}
+  #output_canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+  #output_canvas.mirror{transform:scaleX(-1)}
+  #webcam{position:absolute;width:2px;height:2px;opacity:0;pointer-events:none}
+  #loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--accent);font-size:1rem;background:rgba(15,17,26,.88);padding:18px 20px;border-radius:8px;border:1px solid var(--accent);text-align:center;z-index:10;max-width:85%}
+  #loading.err{color:#ff5555;border-color:#ff5555}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+  .controls[hidden]{display:none}
+  .controls label{font-size:.85rem;color:var(--muted);display:flex;gap:6px;align-items:center}
+  select,input[type=text],input[type=password],input[type=number],textarea{background:#0f111a;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-family:inherit;font-size:.88rem}
+  textarea{width:100%;min-height:60px;resize:vertical}
+  input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+  input[type=file]{display:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:1rem;color:var(--accent);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+  .row:last-child{border-bottom:none}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none;background:#555}
+  .dot.s0{background:var(--ok)} .dot.s1{background:var(--warn)} .dot.s2{background:var(--bad)}
+  .row .lab{flex:1;color:var(--muted)} .row .val{font-weight:600;text-align:right}
+  .hint{font-size:.8rem;color:var(--muted);line-height:1.4;margin:8px 0 0}
+  .warn-box{font-size:.82rem;color:var(--warn);margin:8px 0 0}
+  table{width:100%;border-collapse:collapse;font-size:.8rem;margin-top:8px}
+  th,td{padding:5px 4px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500}
+  #chart{width:100%;height:190px;background:#0f111a;border-radius:8px;border:1px solid var(--line)}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.75rem;color:var(--muted);margin-top:6px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+  details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:1rem}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .grid2 .full{grid-column:1/-1}
+  .grid2 label{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  #aiOut{margin-top:12px;font-size:.88rem;line-height:1.55;white-space:normal}
+  .check{flex-direction:row!important;align-items:flex-start;gap:8px!important}
+  .sp{flex:1}
+  .container.alert{animation:alertblink 1.1s ease-in-out infinite}
+  @keyframes alertblink{0%,100%{border-color:var(--line)}50%{border-color:var(--bad)}}
+  @media (prefers-reduced-motion:reduce){.container.alert{animation:none;border-color:var(--bad)}}
+  #level{position:absolute;left:10px;bottom:10px;z-index:5;background:rgba(15,17,26,.75);border:1px solid var(--line);border-radius:10px;padding:6px 8px;text-align:center;font-size:.7rem;color:var(--txt);max-width:150px}
+  #level[hidden]{display:none}
+  #level canvas{display:block;margin:0 auto 3px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MOVCAP Inteligente</h1>
+  <p>Detección de micro-compensaciones posturales · cámara, video y foto</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-mode="live">📷 Cámara en vivo</button>
+  <button class="tab" data-mode="video">🎞️ Video importado</button>
+  <button class="tab" data-mode="photo">🖼️ Foto (valoración postural)</button>
+</nav>
+
+<div class="layout">
+  <!-- COLUMNA IZQUIERDA: escenario -->
+  <section>
+    <div class="container" id="stage">
+      <div id="loading">Iniciando cámara y cargando IA...</div>
+      <video id="webcam" playsinline muted></video>
+      <div id="level" hidden><canvas id="lvCanvas" width="96" height="96"></canvas><div id="lvTxt">Esperando sensor…</div></div>
+      <canvas id="output_canvas"></canvas>
+    </div>
+
+    <div class="controls" id="ctrl-live">
+      <button class="btn" id="btnFlip">🔄 Cámara: frontal</button>
+      <button class="btn" id="btnLevel">📐 Activar nivel</button>
+      <button class="btn" id="btnCam">Reiniciar cámara</button>
+      <button class="btn rec" id="btnRec">● Registrar sesión</button>
+    </div>
+
+    <div class="controls" id="ctrl-video" hidden>
+      <label class="btn" for="fileVideo">📂 Elegir video</label>
+      <input type="file" id="fileVideo" accept="video/*">
+      <button class="btn primary" id="btnPlay" disabled>▶ Analizar</button>
+      <label>Velocidad
+        <select id="speed">
+          <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option><option value="2">2×</option>
+        </select>
+      </label>
+      <input type="range" id="seek" min="0" max="1000" value="0" disabled>
+      <span id="timeLbl" class="hint" style="margin:0">0:00 / 0:00</span>
+    </div>
+
+    <div class="controls" id="ctrl-photo" hidden>
+      <label class="btn" for="filePhoto">📂 Elegir foto</label>
+      <input type="file" id="filePhoto" accept="image/*">
+      <label><input type="checkbox" id="gridChk"> Cuadrícula de referencia</label>
+    </div>
+
+    <div class="controls">
+      <button class="btn primary" id="btnPDF" disabled>📄 Exportar PDF</button>
+      <button class="btn" id="btnSnap" disabled>⬇ Descargar imagen anotada</button>
+      <button class="btn" id="btnCopy" disabled>📋 Copiar resultados</button>
+      <label><input type="checkbox" id="bioChk" checked> Biofeedback de color (cámara y video)</label>
+    </div>
+    <p class="hint" id="modeHint"></p>
+  </section>
+
+  <!-- COLUMNA DERECHA: resultados -->
+  <section>
+    <div class="card">
+      <h2>Datos del informe (opcional)</h2>
+      <div class="grid2">
+        <label>Nombre o ID de la persona evaluada
+          <input type="text" id="patName" autocomplete="off">
+        </label>
+        <label>Evaluador
+          <input type="text" id="evalName" autocomplete="off">
+        </label>
+      </div>
+      <p class="hint">Aparecen en el encabezado del PDF.</p>
+    </div>
+    <div class="card">
+      <h2>Mediciones
+        <label style="font-size:.8rem;font-weight:400">Vista
+          <select id="viewSel">
+            <option value="frontal">Frontal</option>
+            <option value="posterior">Posterior</option>
+            <option value="lateral">Lateral</option>
+          </select>
+        </label>
+      </h2>
+      <div id="metrics"><p class="hint">Sin datos todavía.</p></div>
+      <p class="warn-box" id="viewWarn"></p>
+      <p class="hint">Semáforo orientativo: verde ≤2°, amarillo ≤4°, rojo &gt;4° (según la medición). Son estimaciones 2D desde una cámara: sirven como apoyo, no como diagnóstico.</p>
+    </div>
+
+    <div class="card" id="sumCard" hidden>
+      <h2>Resumen de sesión (micro-compensaciones)
+        <label style="font-size:.8rem;font-weight:400">Umbral ±
+          <input type="number" id="thr" value="3" min="0.5" max="15" step="0.5" style="width:62px">°
+        </label>
+      </h2>
+      <canvas id="chart" width="560" height="190"></canvas>
+      <div class="legend" id="legend"></div>
+      <table id="sumTable"></table>
+      <p class="hint">Un “evento” es un tramo de al menos 3 fotogramas en que la medición se aleja de su mediana más que el umbral. La gráfica muestra la desviación respecto a la mediana.</p>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Informe con IA online (opcional)</summary>
+        <div class="grid2">
+          <label>Proveedor
+            <select id="aiProv">
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="gemini">Gemini (Google)</option>
+            </select>
+          </label>
+          <label>Modelo
+            <input type="text" id="aiModel" value="claude-sonnet-5-5">
+          </label>
+          <label class="full">Formato del informe
+            <select id="aiFmt">
+              <option value="soap">SOAP: nota de evolución (Subjetivo, Objetivo, Análisis, Plan)</option>
+              <option value="desc">Descriptivo: hallazgos y sugerencias</option>
+            </select>
+          </label>
+          <label class="full">Clave API
+            <input type="password" id="aiKey" placeholder="Pega tu clave API" autocomplete="off">
+          </label>
+          <label class="check full"><input type="checkbox" id="aiRemember"> Recordar la clave en este navegador</label>
+          <label class="full">Contexto clínico / Subjetivo (opcional: edad, motivo de consulta, dolor, antecedentes, actividad)
+            <textarea id="clinCtx" placeholder="Ej.: 34 años, dolor cervical al trabajar sentado"></textarea>
+          </label>
+          <label class="check full"><input type="checkbox" id="aiConsent"> Entiendo que la imagen y las mediciones se enviarán a un servicio externo y cuento con el consentimiento de la persona evaluada.</label>
+          <div class="full"><button class="btn primary" id="btnAI">Generar informe con IA</button></div>
+        </div>
+        <p class="hint">El análisis local funciona sin esto. La clave se usa directamente desde tu navegador: úsalo solo en tu equipo personal y no publiques esta página con la clave guardada.</p>
+        <div id="aiOut"></div>
+      </details>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $('webcam'), canvas = $('output_canvas'), ctx = canvas.getContext('2d');
+const loading = $('loading'), stage = $('stage');
+
+function showMsg(msg, isErr){
+  loading.style.display = 'block';
+  loading.textContent = msg;
+  loading.classList.toggle('err', !!isErr);
+}
+function hideMsg(){ loading.style.display = 'none'; }
+const showError = m => showMsg(m, true);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+if (typeof Pose === 'undefined' || typeof drawConnectors === 'undefined') {
+  showError("Error: no se pudieron cargar las librerías de MediaPipe. Revisa tu conexión a internet.");
+  throw new Error("MediaPipe no cargó");
+}
+
+/* ---------------- Estado ---------------- */
+const state = {
+  mode: 'live', token: 0, stream: null, busy: false,
+  recording: false, series: [], lastT: -1,
+  lastResults: null, lastMetrics: null, resolver: null,
+  photoCanvas: null, srcW: 640, srcH: 480,
+  summary: null, lastUI: 0, hasVideo: false, ai: null,
+  facing: 'user' // 'user' = frontal, 'environment' = trasera
+};
+
+/* ---------------- MediaPipe ---------------- */
+const pose = new Pose({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${f}`
+});
+const BASE = { smoothLandmarks: true, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 };
+function applyPoseOptions(mode){
+  if (mode === 'photo') pose.setOptions({ ...BASE, modelComplexity: 2, staticImageMode: true });
+  else pose.setOptions({ ...BASE, modelComplexity: 1, staticImageMode: false });
+  try { pose.reset(); } catch(e){}
+}
+applyPoseOptions('live');
+
+function setupCanvas(w, h){
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  stage.style.aspectRatio = w + '/' + h;
+}
+
+async function safeSend(src){
+  if (state.busy) return false;
+  state.busy = true;
+  try { await pose.send({ image: src }); return true; }
+  finally { state.busy = false; }
+}
+function analyzeOnce(src){
+  return new Promise((resolve, reject) => {
+    const to = setTimeout(() => { state.resolver = null; reject(new Error('Tiempo de espera agotado')); }, 90000);
+    state.resolver = r => { clearTimeout(to); resolve(r); };
+    pose.send({ image: src }).catch(e => { clearTimeout(to); state.resolver = null; reject(e); });
+  });
+}
+
+/* ---------------- Mediciones ---------------- */
+const deg = r => r * 180 / Math.PI;
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+// positivo = el punto izquierdo (a) queda más abajo que el derecho (b)
+const tilt = (a, b) => deg(Math.atan2(a.y - b.y, Math.abs(a.x - b.x) || 1e-6));
+function angle3(a, b, c){
+  const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
+  const m = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1;
+  return deg(Math.acos(Math.max(-1, Math.min(1, (v1.x * v2.x + v1.y * v2.y) / m))));
+}
+function computeMetrics(lm, W, H){
+  const p = i => ({ x: lm[i].x * W, y: lm[i].y * H, v: lm[i].visibility ?? 1 });
+  const nose = p(0), le = p(7), re = p(8), ls = p(11), rs = p(12), lh = p(23), rh = p(24),
+        lk = p(25), rk = p(26), la = p(27), ra = p(28);
+  const ms = mid(ls, rs), mh = mid(lh, rh), ma = mid(la, ra);
+  const shW = Math.hypot(ls.x - rs.x, ls.y - rs.y) || 1;
+  const m = {};
+  m.shoulder = tilt(ls, rs);
+  m.pelvis = tilt(lh, rh);
+  m.head = tilt(le, re);
+  m.knees = tilt(lk, rk);
+  m.trunk = deg(Math.atan2(ms.x - mh.x, mh.y - ms.y)); // + = tronco hacia la derecha de la imagen
+  m.shift = (ms.x - ma.x) / shW;
+  m.kneeDevL = 180 - angle3(lh, lk, la);
+  m.kneeDevR = 180 - angle3(rh, rk, ra);
+  // Vista lateral: se usa el lado más visible
+  const vl = ls.v + lh.v + le.v + lk.v, vr = rs.v + rh.v + re.v + rk.v;
+  const L = vl >= vr;
+  m.latIdx = L ? [7, 11, 23, 25] : [8, 12, 24, 26]; // oreja, hombro, cadera, rodilla del lado más visible
+  const sh = L ? ls : rs, hp = L ? lh : rh, ear = L ? le : re, kn = L ? lk : rk, an = L ? la : ra;
+  const dir = nose.x >= ear.x ? 1 : -1;
+  const torso = Math.hypot(sh.x - hp.x, sh.y - hp.y) || 1;
+  m.cva = deg(Math.atan2(sh.y - ear.y, Math.abs(ear.x - sh.x) || 1e-6));
+  m.headFwd = (ear.x - sh.x) * dir / torso;
+  m.trunkSag = deg(Math.atan2((sh.x - hp.x) * dir, hp.y - sh.y));
+  m.kneeFlex = 180 - angle3(hp, kn, an);
+  m.vis = (ls.v + rs.v + lh.v + rh.v) / 4;
+  return m;
+}
+
+const rate = (v, [a, b]) => { const x = Math.abs(v); return x <= a ? 0 : x <= b ? 1 : 2; };
+function buildRows(m, view){
+  if (view === 'lateral') return [
+    { label: 'Ángulo cráneo-vertebral (aprox.)', text: m.cva.toFixed(0) + '° (ideal ≥50°)', st: m.cva >= 50 ? 0 : m.cva >= 45 ? 1 : 2 },
+    { label: 'Anteriorización de cabeza', text: Math.round(m.headFwd * 100) + '% del tronco', st: rate(m.headFwd, [.08, .16]) },
+    { label: 'Inclinación sagital del tronco', text: Math.abs(m.trunkSag).toFixed(1) + '° ' + (m.trunkSag > 0 ? 'hacia delante' : 'hacia atrás'), st: rate(m.trunkSag, [3, 6]) },
+    { label: 'Flexión de rodilla visible', text: m.kneeFlex.toFixed(0) + '°', st: m.kneeFlex <= 5 ? 0 : m.kneeFlex <= 15 ? 1 : 2 }
+  ];
+  const side = (v, pos, neg) => Math.abs(v).toFixed(1) + '° · ' + (v > 0 ? pos : neg);
+  return [
+    { label: 'Hombros', text: side(m.shoulder, 'der. más alto', 'izq. más alto'), st: rate(m.shoulder, [2, 4]) },
+    { label: 'Pelvis', text: side(m.pelvis, 'der. más alta', 'izq. más alta'), st: rate(m.pelvis, [2, 4]) },
+    { label: 'Cabeza (línea de orejas)', text: side(m.head, 'der. más alta', 'izq. más alta'), st: rate(m.head, [2, 4]) },
+    { label: 'Nivel de rodillas', text: side(m.knees, 'der. más alta', 'izq. más alta'), st: rate(m.knees, [2, 4]) },
+    { label: 'Inclinación del tronco', text: Math.abs(m.trunk).toFixed(1) + '° hacia ' + (m.trunk > 0 ? 'izq.' : 'der.') + ' del paciente', st: rate(m.trunk, [2, 4]) },
+    { label: 'Tronco vs. base de apoyo', text: Math.abs(m.shift * 100).toFixed(0) + '% del ancho de hombros', st: rate(m.shift, [.05, .12]) },
+    { label: 'Alineación rodilla izq. / der.', text: m.kneeDevL.toFixed(0) + '° / ' + m.kneeDevR.toFixed(0) + '° de desviación', st: Math.max(rate(m.kneeDevL, [5, 10]), rate(m.kneeDevR, [5, 10])) }
+  ];
+}
+function renderMetrics(m){
+  const box = $('metrics');
+  if (!m){ box.innerHTML = '<p class="hint">No se detecta una persona. Asegura que se vea el cuerpo completo y con buena luz.</p>'; return; }
+  const view = $('viewSel').value;
+  const rows = buildRows(m, view);
+  box.innerHTML = rows.map(r => `<div class="row"><span class="dot s${r.st}"></span><span class="lab">${esc(r.label)}</span><span class="val">${esc(r.text)}</span></div>`).join('');
+  $('viewWarn').textContent = m.vis < 0.5 ? '⚠ Hombros o caderas poco visibles: las mediciones pueden no ser fiables.' :
+    (view === 'posterior' ? '⚠ En vista posterior el modelo puede invertir izquierda/derecha: verifica la lateralidad visualmente.' : '');
+}
+
+/* ---------------- Dibujo ---------------- */
+function drawLine(a, b, color, w, dash){
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.restore();
+}
+function drawGuides(lm, W, H){
+  const p = i => ({ x: lm[i].x * W, y: lm[i].y * H });
+  const lw = Math.max(2, W / 400), fs = Math.max(13, Math.round(W / 45));
+  if ($('gridChk').checked){
+    for (let i = 1; i < 8; i++){
+      drawLine({ x: W * i / 8, y: 0 }, { x: W * i / 8, y: H }, 'rgba(255,255,255,.12)', 1);
+      drawLine({ x: 0, y: H * i / 8 }, { x: W, y: H * i / 8 }, 'rgba(255,255,255,.12)', 1);
+    }
+  }
+  const view = $('viewSel').value;
+  const ma = mid(p(27), p(28)), ms = mid(p(11), p(12));
+  const px = view === 'lateral' ? (lm[27].visibility >= lm[28].visibility ? p(27).x : p(28).x) : ma.x;
+  drawLine({ x: px, y: 0 }, { x: px, y: H }, 'rgba(255,255,255,.55)', lw, [10, 8]); // plomada
+  if (view !== 'lateral'){
+    const m = state.lastMetrics;
+    const pairs = [[11, 12, '#ffd166', m && m.shoulder], [23, 24, '#5ac8fa', m && m.pelvis], [7, 8, '#ff9f43', m && m.head]];
+    ctx.font = `600 ${fs}px sans-serif`;
+    pairs.forEach(([a, b, col, val]) => {
+      const A = p(a), B = p(b), dx = B.x - A.x, dy = B.y - A.y;
+      drawLine({ x: A.x - dx * .35, y: A.y - dy * .35 }, { x: B.x + dx * .35, y: B.y + dy * .35 }, col, lw);
+      if (val != null){
+        ctx.fillStyle = col;
+        ctx.fillText(Math.abs(val).toFixed(1) + '°', Math.max(A.x, B.x) + Math.abs(dx) * .4 + 6, Math.max(A.y, B.y) - 4);
+      }
+    });
+  }
+}
+function render(r){
+  const W = state.srcW, H = state.srcH;
+  setupCanvas(W, H);
+  ctx.save();
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(r.image, 0, 0, W, H);
+  let m = null, red = false;
+  if (r.poseLandmarks){
+    m = computeMetrics(r.poseLandmarks, W, H);
+    state.lastMetrics = m;
+    const s = Math.max(1, W / 640);
+    drawConnectors(ctx, r.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF66', lineWidth: 3 * s });
+    drawLandmarks(ctx, r.poseLandmarks, { color: '#FF3333', lineWidth: 1, radius: 4 * s });
+    if (state.mode === 'photo') drawGuides(r.poseLandmarks, W, H);
+    else if ($('bioChk').checked) red = drawBio(r.poseLandmarks, W, H, m);
+  } else state.lastMetrics = null;
+  ctx.restore();
+  stage.classList.toggle('alert', red);
+  return m;
+}
+
+pose.onResults(r => {
+  hideMsg();
+  state.lastResults = r;
+  const m = render(r);
+  const now = performance.now();
+  if (state.mode === 'photo' || now - state.lastUI > 160){ state.lastUI = now; renderMetrics(m); }
+  if (m){
+    $('btnSnap').disabled = false; $('btnCopy').disabled = false; $('btnPDF').disabled = false;
+    if (state.recording && (state.mode === 'live' || state.mode === 'video')){
+      const t = state.mode === 'video' ? video.currentTime : performance.now() / 1000;
+      if (t !== state.lastT){
+        state.lastT = t;
+        state.series.push({ t, shoulder: m.shoulder, pelvis: m.pelvis, head: m.head, trunk: m.trunk, knees: m.knees });
+      }
+    }
+  }
+  if (state.resolver){ const f = state.resolver; state.resolver = null; f(r); }
+});
+
+/* ---------------- Modos ---------------- */
+const HINTS = {
+  live: 'Colócate de frente (o de lado) con el cuerpo completo en cuadro. Pulsa “Registrar sesión” para medir fluctuaciones durante un movimiento.',
+  video: 'Importa un video del movimiento (cuerpo completo, cámara fija). Pulsa “Analizar” para reproducir y registrar; al terminar verás el resumen.',
+  photo: 'Sube una foto de pie, cuerpo completo, cámara a la altura de la cadera y a 2–3 m. Elige la vista (frontal, posterior o lateral) en “Mediciones”.'
+};
+function stopLive(){
+  if (state.stream){ state.stream.getTracks().forEach(t => t.stop()); state.stream = null; }
+}
+function resetSession(){
+  state.recording = false; state.series = []; state.lastT = -1; state.summary = null; state.tiltMax = null;
+  $('sumCard').hidden = true;
+  $('btnRec').classList.remove('on'); $('btnRec').textContent = '● Registrar sesión';
+}
+function setMode(mode){
+  state.token++;
+  stopLive();
+  video.pause();
+  video.removeAttribute('src'); video.srcObject = null; video.load();
+  state.hasVideo = false;
+  state.mode = mode;
+  resetSession();
+  state.lastMetrics = null; state.lastResults = null;
+  $('btnSnap').disabled = true; $('btnCopy').disabled = true; $('btnPDF').disabled = true;
+  clearAI(); stage.classList.remove('alert');
+  if (mode !== 'live') stopLevel();
+  $('metrics').innerHTML = '<p class="hint">Sin datos todavía.</p>';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  $('ctrl-live').hidden = mode !== 'live';
+  $('ctrl-video').hidden = mode !== 'video';
+  $('ctrl-photo').hidden = mode !== 'photo';
+  canvas.classList.toggle('mirror', mode === 'live' && state.facing === 'user');
+  $('modeHint').textContent = HINTS[mode];
+  $('btnPlay').disabled = true; $('seek').disabled = true;
+  applyPoseOptions(mode);
+  stage.style.aspectRatio = '4/3';
+  if (mode === 'live') startLive();
+  else if (mode === 'video') showMsg('Importa un video para analizar los movimientos.');
+  else showMsg('Sube una foto para la valoración postural.');
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+/* ---- Cámara en vivo ---- */
+async function startLive(){
+  const tok = ++state.token;
+  stopLive();
+  showMsg('Iniciando cámara y cargando IA...');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: state.facing } }, audio: false });
+    if (tok !== state.token){ stream.getTracks().forEach(t => t.stop()); return; }
+    state.stream = stream;
+    // Espejo solo con la cámara frontal
+    const fm = stream.getVideoTracks()[0].getSettings().facingMode;
+    const front = fm ? fm === 'user' : state.facing === 'user';
+    canvas.classList.toggle('mirror', front);
+    $('btnFlip').textContent = '🔄 Cámara: ' + (front ? 'frontal' : 'trasera');
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    state.srcW = video.videoWidth || 640; state.srcH = video.videoHeight || 480;
+    const loop = async () => {
+      if (tok !== state.token) return;
+      if (video.readyState >= 2){
+        try { await safeSend(video); }
+        catch (e){ console.error(e); showError('Error al procesar el video: ' + e.message); return; }
+      }
+      requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (err){
+    console.error(err);
+    showError('Error: permite el acceso a la cámara para usar el MOVCAP.');
+  }
+}
+$('btnCam').addEventListener('click', startLive);
+$('btnFlip').addEventListener('click', () => {
+  state.facing = state.facing === 'user' ? 'environment' : 'user';
+  resetSession();
+  startLive();
+});
+$('btnRec').addEventListener('click', () => {
+  if (!state.recording){
+    if (level.on && level.pitch != null && Math.max(Math.abs(level.pitch), Math.abs(level.roll)) > 3 &&
+        !confirm('El celular no está nivelado (inclinación ' + level.pitch.toFixed(1) + '°, giro ' + level.roll.toFixed(1) + '°). Eso distorsiona las mediciones. ¿Registrar de todos modos?')) return;
+    state.tiltMax = null;
+    state.series = []; state.lastT = -1; state.recording = true;
+    $('btnRec').classList.add('on'); $('btnRec').textContent = '■ Detener y resumir';
+    $('sumCard').hidden = true;
+  } else {
+    state.recording = false;
+    $('btnRec').classList.remove('on'); $('btnRec').textContent = '● Registrar sesión';
+    showSummary();
+  }
+});
+
+/* ---- Video importado ---- */
+const fmt = s => { s = Math.max(0, s || 0); return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
+$('fileVideo').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  state.token++;
+  video.pause(); resetSession(); clearAI();
+  video.srcObject = null;
+  video.src = URL.createObjectURL(f);
+  video.muted = true; video.playbackRate = parseFloat($('speed').value);
+  showMsg('Cargando video y modelo de IA...');
+  try { pose.reset(); } catch(_){}
+  video.onloadeddata = async () => {
+    state.hasVideo = true;
+    state.srcW = video.videoWidth; state.srcH = video.videoHeight;
+    setupCanvas(state.srcW, state.srcH);
+    $('btnPlay').disabled = false; $('seek').disabled = false;
+    $('seek').value = 0; $('timeLbl').textContent = '0:00 / ' + fmt(video.duration);
+    try { await safeSend(video); } catch(err){ showError('Error al procesar el video: ' + err.message); }
+  };
+  video.onerror = () => showError('No se pudo leer este video. Prueba con un MP4 (H.264) o WebM.');
+  e.target.value = '';
+});
+function startVideoLoop(){
+  const tok = ++state.token;
+  let last = -1;
+  const step = async () => {
+    if (tok !== state.token || state.mode !== 'video' || video.paused || video.ended) return;
+    if (video.currentTime !== last){
+      try { if (await safeSend(video)) last = video.currentTime; }
+      catch (e){ console.error(e); showError('Error al procesar el video: ' + e.message); return; }
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+$('btnPlay').addEventListener('click', () => {
+  if (!state.hasVideo) return;
+  if (!video.paused){ video.pause(); return; }
+  if (video.ended || video.currentTime > video.duration - 0.1) video.currentTime = 0;
+  if (!state.recording){ state.series = []; state.lastT = -1; state.recording = true; $('sumCard').hidden = true; }
+  video.playbackRate = parseFloat($('speed').value);
+  video.play();
+});
+video.addEventListener('play', () => {
+  if (state.mode !== 'video') return;
+  $('btnPlay').textContent = '⏸ Pausar';
+  startVideoLoop();
+});
+function endVideoRun(){
+  if (state.mode !== 'video') return;
+  $('btnPlay').textContent = '▶ Analizar';
+  if (state.recording){ state.recording = false; showSummary(); }
+}
+video.addEventListener('pause', endVideoRun);
+video.addEventListener('ended', endVideoRun);
+video.addEventListener('timeupdate', () => {
+  if (state.mode !== 'video' || !video.duration) return;
+  if (!$('seek').matches(':active')) $('seek').value = Math.round(video.currentTime / video.duration * 1000);
+  $('timeLbl').textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+});
+$('seek').addEventListener('input', () => {
+  if (state.mode === 'video' && video.duration) video.currentTime = $('seek').value / 1000 * video.duration;
+});
+video.addEventListener('seeked', async () => {
+  if (state.mode === 'video' && video.paused && state.hasVideo){
+    try { await safeSend(video); } catch(_){}
+  }
+});
+$('speed').addEventListener('change', () => { video.playbackRate = parseFloat($('speed').value); });
+
+/* ---- Foto ---- */
+$('filePhoto').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  e.target.value = '';
+  state.token++;
+  clearAI();
+  showMsg('Analizando foto con el modelo de alta precisión (la primera vez tarda unos segundos)...');
+  try {
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('No se pudo abrir la imagen')); img.src = url; });
+    const s = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    state.photoCanvas = c; state.srcW = c.width; state.srcH = c.height;
+    await analyzeOnce(c);
+    if (!state.lastMetrics){
+      renderMetrics(null);
+      showError('No se detectó una persona completa en la foto.');
+    }
+  } catch (err){
+    console.error(err); showError('Error: ' + err.message);
+  }
+});
+function rerenderPhoto(){
+  if (state.mode === 'photo' && state.lastResults){
+    const m = render(state.lastResults); renderMetrics(m);
+  }
+}
+$('gridChk').addEventListener('change', rerenderPhoto);
+$('viewSel').addEventListener('change', () => {
+  if (state.mode === 'photo') rerenderPhoto();
+  else renderMetrics(state.lastMetrics);
+});
+
+/* ---------------- Resumen de sesión ---------------- */
+const SERIES = [
+  { k: 'shoulder', label: 'Hombros', color: '#ffd166' },
+  { k: 'pelvis', label: 'Pelvis', color: '#5ac8fa' },
+  { k: 'head', label: 'Cabeza', color: '#ff9f43' },
+  { k: 'trunk', label: 'Tronco', color: '#4af6c3' },
+  { k: 'knees', label: 'Rodillas', color: '#c792ea' }
+];
+function median(a){ const s = [...a].sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; }
+function computeSummary(thr){
+  const S = state.series, out = [];
+  SERIES.forEach(def => {
+    const v = S.map(o => o[def.k]);
+    const med = median(v), mean = v.reduce((a, b) => a + b, 0) / v.length;
+    const sd = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / v.length);
+    let events = 0, run = 0, peak = 0;
+    v.forEach((x, i) => {
+      const d = x - med;
+      if (Math.abs(d) > thr){ run++; if (Math.abs(d) > Math.abs(peak)) peak = d; }
+      else { if (run >= 3) events++; run = 0; }
+      if (i === v.length - 1 && run >= 3) events++;
+    });
+    out.push({ ...def, med, sd, range: Math.max(...v) - Math.min(...v), events, peak, dev: v.map(x => x - med) });
+  });
+  return out;
+}
+function drawChart(sum, thr){
+  const c = $('chart'), g = c.getContext('2d'), W = c.width, H = c.height;
+  g.clearRect(0, 0, W, H);
+  const lim = Math.max(thr * 2, ...sum.map(s => Math.max(...s.dev.map(Math.abs)))) * 1.1;
+  const y = v => H / 2 - v / lim * (H / 2 - 12);
+  g.fillStyle = 'rgba(241,196,15,.10)'; g.fillRect(0, y(thr), W, y(-thr) - y(thr));
+  g.strokeStyle = '#2a3142'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
+  g.fillStyle = '#8892b0'; g.font = '11px sans-serif';
+  g.fillText('+' + lim.toFixed(0) + '°', 4, 12); g.fillText('−' + lim.toFixed(0) + '°', 4, H - 4);
+  sum.forEach(s => {
+    g.strokeStyle = s.color; g.lineWidth = 1.6; g.beginPath();
+    s.dev.forEach((d, i) => {
+      const x = s.dev.length > 1 ? i / (s.dev.length - 1) * (W - 8) + 4 : 4;
+      i ? g.lineTo(x, y(d)) : g.moveTo(x, y(d));
+    });
+    g.stroke();
+  });
+}
+function showSummary(){
+  if (state.series.length < 5){ return; }
+  const thr = parseFloat($('thr').value) || 3;
+  const sum = computeSummary(thr);
+  state.summary = { sum, thr, frames: state.series.length, dur: state.series[state.series.length - 1].t - state.series[0].t };
+  $('sumCard').hidden = false;
+  drawChart(sum, thr);
+  $('legend').innerHTML = SERIES.map(s => `<span><i style="background:${s.color}"></i>${s.label}</span>`).join('');
+  $('sumTable').innerHTML = '<tr><th>Medición</th><th>Mediana</th><th>DE</th><th>Rango</th><th>Eventos</th><th>Pico</th></tr>' +
+    sum.map(s => `<tr><td>${s.label}</td><td>${s.med.toFixed(1)}°</td><td>${s.sd.toFixed(1)}°</td><td>${s.range.toFixed(1)}°</td><td>${s.events}</td><td>${(s.peak >= 0 ? '+' : '') + s.peak.toFixed(1)}°</td></tr>`).join('');
+  $('sumCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+$('thr').addEventListener('change', () => { if (state.series.length >= 5) showSummary(); });
+
+/* ---------------- Exportar ---------------- */
+function resultsText(){
+  const lines = [];
+  const d = new Date().toLocaleString('es-BO');
+  lines.push('MOVCAP · ' + d + ' · modo: ' + ({ live: 'cámara', video: 'video', photo: 'foto' })[state.mode] + ' · vista: ' + $('viewSel').value);
+  if (state.lastMetrics){
+    buildRows(state.lastMetrics, $('viewSel').value).forEach(r => lines.push('- ' + r.label + ': ' + r.text + ' [' + ['normal', 'leve', 'notable'][r.st] + ']'));
+  }
+  if (state.summary && state.mode !== 'photo'){
+    const s = state.summary;
+    lines.push('', 'Resumen de sesión (' + s.dur.toFixed(1) + ' s, ' + s.frames + ' fotogramas, umbral ±' + s.thr + '°):');
+    s.sum.forEach(x => lines.push('- ' + x.label + ': mediana ' + x.med.toFixed(1) + '°, DE ' + x.sd.toFixed(1) + '°, rango ' + x.range.toFixed(1) + '°, eventos ' + x.events + ', pico ' + x.peak.toFixed(1) + '°'));
+  }
+  return lines.join('\n');
+}
+$('btnCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(resultsText()); $('btnCopy').textContent = '✔ Copiado'; }
+  catch(e){ prompt('Copia los resultados:', resultsText()); }
+  setTimeout(() => $('btnCopy').textContent = '📋 Copiar resultados', 1500);
+});
+$('btnSnap').addEventListener('click', () => {
+  canvas.toBlob(b => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'movcap_' + Date.now() + '.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+});
+
+/* ---------------- Informe con IA (opcional) ---------------- */
+const AI_DEFAULT = { claude: 'claude-sonnet-5-5', gemini: 'gemini-2.5-flash' };
+$('aiProv').addEventListener('change', () => { $('aiModel').value = AI_DEFAULT[$('aiProv').value]; loadKey(); });
+function loadKey(){
+  try { $('aiKey').value = localStorage.getItem('movcap_key_' + $('aiProv').value) || ''; $('aiRemember').checked = !!$('aiKey').value; } catch(e){}
+}
+loadKey();
+
+function snapshotB64(){
+  const max = 1024, s = Math.min(1, max / Math.max(canvas.width, canvas.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * s); c.height = Math.round(canvas.height * s);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+}
+const SYSTEM = 'Eres un asistente de apoyo para fisioterapeutas y profesionales del movimiento. Recibes una imagen con el esqueleto estimado por visión artificial (MediaPipe Pose) y mediciones 2D. No des diagnósticos médicos. Responde en español, con tono profesional y conciso (máximo 350 palabras), con estas secciones: "Hallazgos principales", "Posibles compensaciones y cadenas implicadas", "Limitaciones de la medición" (perspectiva, cámara, ropa, error del modelo) y "Sugerencias para el profesional" (qué evaluar o reforzar). Básate solo en los datos y la imagen; indica la incertidumbre cuando exista.';
+const SYSTEM_SOAP = 'Eres un asistente de apoyo para fisioterapeutas y kinesiólogos. Recibes una imagen con el esqueleto estimado por visión artificial (MediaPipe Pose), mediciones 2D y, de forma opcional, el contexto clínico aportado por el profesional. Redacta en español un BORRADOR de nota de evolución en formato SOAP, conciso (máximo 400 palabras), con exactamente estos encabezados, cada uno en su línea y precedido de "## ": "## S - Subjetivo", "## O - Objetivo", "## A - Análisis", "## P - Plan". Reglas. S: usa únicamente lo que aporta el profesional en el contexto clínico; si no hay datos escribe "No aportado" y no inventes síntomas, antecedentes ni escalas de dolor. O: resume las mediciones con sus valores y el lado (grados o %), indicando el modo (foto, video o cámara), la vista y las limitaciones de la medición (2D, perspectiva, error aproximado de 1-2°). A: interpreta los hallazgos como hipótesis de compensación e indica la incertidumbre; no des diagnósticos médicos. P: sugiere qué evaluar o confirmar en la exploración física, qué reevaluar y con qué condiciones de captura, y líneas de trabajo posibles para que el profesional decida; no prescribas dosis ni tratamientos específicos. Termina con la línea: "Borrador generado por IA: requiere revisión y validación del profesional."';
+async function runAI(){
+  const out = $('aiOut');
+  const key = $('aiKey').value.trim();
+  if (!state.lastMetrics){ out.textContent = 'Primero analiza una foto, un video o la cámara para tener datos.'; return; }
+  if (!$('aiConsent').checked){ out.textContent = 'Marca la casilla de consentimiento para enviar los datos.'; return; }
+  if (!key){ out.textContent = 'Falta la clave API.'; return; }
+  try {
+    if ($('aiRemember').checked) localStorage.setItem('movcap_key_' + $('aiProv').value, key);
+    else localStorage.removeItem('movcap_key_' + $('aiProv').value);
+  } catch(e){}
+  const ctxClin = $('clinCtx').value.trim();
+  const userText = 'Datos de la evaluación:\n' + resultsText() + (ctxClin ? '\n\nContexto clínico aportado: ' + ctxClin : '') +
+    (soap ? '\n\nRedacta el borrador de la nota SOAP.' : '\n\nElabora el informe.');
+  const soap = $('aiFmt').value === 'soap', sys = soap ? SYSTEM_SOAP : SYSTEM;
+  const img = snapshotB64(), model = $('aiModel').value.trim();
+  $('btnAI').disabled = true; out.textContent = 'Generando informe…';
+  try {
+    let text = '';
+    if ($('aiProv').value === 'claude'){
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 1800, system: sys, messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: img } },
+          { type: 'text', text: userText } ] }] })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error?.message || ('HTTP ' + r.status));
+      text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    } else {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] },
+          contents: [{ role: 'user', parts: [{ text: userText }, { inline_data: { mime_type: 'image/jpeg', data: img } }] }],
+          generationConfig: { maxOutputTokens: 4096 } })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error?.message || ('HTTP ' + r.status));
+      text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n');
+    }
+    if (!text) throw new Error('La IA no devolvió texto.');
+    state.ai = { text, when: new Date(), prov: $('aiProv').value, model, soap };
+    out.innerHTML = esc(text)
+      .replace(/^#{1,4}\s*(.+)$/gm, '<strong>$1</strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+    out.innerHTML += '<p class="hint">Informe generado por IA como apoyo; no sustituye el criterio clínico.</p>';
+  } catch (e){
+    out.textContent = 'No se pudo generar el informe: ' + e.message;
+  } finally { $('btnAI').disabled = false; }
+}
+$('btnAI').addEventListener('click', runAI);
+
+/* ---------------- Biofeedback de color (cámara y video) ---------------- */
+const SEM = ['#2ecc71', '#f1c40f', '#ff3b3b'];
+const REDUCE_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+// Dibuja las líneas guía y los marcadores con el color del semáforo; el rojo pulsa (~1 Hz, seguro para fotosensibilidad)
+function drawBio(lm, W, H, m){
+  const view = $('viewSel').value;
+  const p = i => ({ x: lm[i].x * W, y: lm[i].y * H });
+  const lw = Math.max(3, W / 200), fs = Math.max(13, Math.round(W / 40));
+  const pulse = REDUCE_MOTION ? 1 : 0.55 + 0.45 * Math.sin(performance.now() / 1000 * 2 * Math.PI * 1.2);
+  const mirrored = canvas.classList.contains('mirror');
+  let anyRed = false;
+  const label = (s, x, y, col) => {
+    ctx.save();
+    ctx.font = `700 ${fs}px sans-serif`; ctx.fillStyle = col;
+    ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.textAlign = mirrored ? 'right' : 'left'; // el lienzo se muestra en espejo: se contra-voltea el texto
+    ctx.translate(x, y); if (mirrored) ctx.scale(-1, 1);
+    ctx.strokeText(s, 0, 0); ctx.fillText(s, 0, 0);
+    ctx.restore();
+  };
+  const seg = (a, b, st, txt, ext) => {
+    const A = p(a), B = p(b), dx = B.x - A.x, dy = B.y - A.y, e = ext == null ? 0.25 : ext;
+    if (st === 2) anyRed = true;
+    ctx.save();
+    ctx.globalAlpha = st === 2 ? pulse : 1;
+    ctx.lineCap = 'round'; ctx.strokeStyle = SEM[st]; ctx.fillStyle = SEM[st];
+    ctx.lineWidth = lw * (st === 2 ? 1.4 : 1);
+    ctx.beginPath(); ctx.moveTo(A.x - dx * e, A.y - dy * e); ctx.lineTo(B.x + dx * e, B.y + dy * e); ctx.stroke();
+    [A, B].forEach(P => { ctx.beginPath(); ctx.arc(P.x, P.y, lw * 1.8, 0, 7); ctx.fill(); });
+    ctx.restore();
+    if (txt) label(txt, Math.max(A.x, B.x) + Math.abs(dx) * e + 10, (A.y + B.y) / 2, SEM[st]);
+  };
+  const deg1 = v => Math.abs(v).toFixed(1) + '°';
+  if (view !== 'lateral'){
+    seg(11, 12, rate(m.shoulder, [2, 4]), deg1(m.shoulder));
+    seg(23, 24, rate(m.pelvis, [2, 4]), deg1(m.pelvis));
+    seg(7, 8, rate(m.head, [2, 4]), deg1(m.head), 0.5);
+    seg(25, 26, rate(m.knees, [2, 4]), deg1(m.knees));
+  } else if (m.latIdx){
+    const [ea, sh, hp] = m.latIdx;
+    const stNeck = Math.max(m.cva >= 50 ? 0 : m.cva >= 45 ? 1 : 2, rate(m.headFwd, [.08, .16]));
+    seg(sh, ea, stNeck, 'CVA ' + m.cva.toFixed(0) + '°', 0);
+    seg(hp, sh, rate(m.trunkSag, [3, 6]), deg1(m.trunkSag), 0);
+  }
+  return anyRed;
+}
+
+/* ---------------- Nivel del dispositivo (burbuja) ---------------- */
+const level = { on: false, pitch: null, roll: null, last: 0, draw: 0 };
+function drawLevel(){
+  const c = $('lvCanvas'), g = c.getContext('2d'), S = c.width, R = S / 2 - 4, pit = level.pitch, rol = level.roll;
+  g.clearRect(0, 0, S, S);
+  const worst = Math.max(Math.abs(pit), Math.abs(rol));
+  const col = worst <= 1.5 ? SEM[0] : worst <= 3 ? SEM[1] : SEM[2];
+  g.strokeStyle = '#8892b0'; g.lineWidth = 1.5;
+  g.beginPath(); g.arc(S / 2, S / 2, R, 0, 7); g.stroke();
+  g.beginPath(); g.arc(S / 2, S / 2, R * 0.3, 0, 7); g.stroke(); // zona objetivo: ±3°
+  g.beginPath(); g.moveTo(S / 2 - R, S / 2); g.lineTo(S / 2 + R, S / 2); g.moveTo(S / 2, S / 2 - R); g.lineTo(S / 2, S / 2 + R); g.stroke();
+  const k = R / 10, cl = v => Math.max(-10, Math.min(10, v)); // el borde equivale a 10°
+  g.fillStyle = col; g.beginPath(); g.arc(S / 2 + cl(rol) * k, S / 2 - cl(pit) * k, 7, 0, 7); g.fill();
+  $('lvTxt').textContent = (worst <= 3 ? '✔ ' : '⚠ ') + 'Incl. ' + pit.toFixed(1) + '° · Giro ' + rol.toFixed(1) + '°';
+}
+function onOrient(e){
+  if (e.beta == null || e.gamma == null) return;
+  const b = e.beta * Math.PI / 180, gm = e.gamma * Math.PI / 180;
+  // Vector "arriba" del mundo expresado en los ejes del dispositivo (independiente de alpha)
+  const ux = -Math.sin(gm) * Math.cos(b), uy = Math.sin(b), uz = Math.cos(gm) * Math.cos(b);
+  const a = ((screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0) * Math.PI / 180;
+  const uu = ux * Math.sin(a) + uy * Math.cos(a);   // componente a lo largo del "arriba" de la pantalla
+  const ur = ux * Math.cos(a) - uy * Math.sin(a);   // componente a lo largo de la "derecha" de la pantalla
+  level.pitch = Math.atan2(uz, uu) * 180 / Math.PI; // 0° = dispositivo vertical (eje óptico horizontal)
+  level.roll = Math.atan2(ur, uu) * 180 / Math.PI;  // 0° = horizonte de la imagen nivelado
+  level.last = performance.now();
+  if (state.recording) state.tiltMax = Math.max(state.tiltMax || 0, Math.abs(level.pitch), Math.abs(level.roll));
+  if (level.last - level.draw > 60){ level.draw = level.last; drawLevel(); }
+}
+function stopLevel(){
+  level.on = false; level.pitch = level.roll = null;
+  window.removeEventListener('deviceorientation', onOrient);
+  $('level').hidden = true; $('btnLevel').textContent = '📐 Activar nivel';
+}
+async function toggleLevel(){
+  if (level.on){ stopLevel(); return; }
+  if (!('DeviceOrientationEvent' in window)){ alert('Este dispositivo o navegador no ofrece sensor de orientación.'); return; }
+  try {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function'){ // iOS
+      if (await DeviceOrientationEvent.requestPermission() !== 'granted'){ alert('Permiso de sensores denegado.'); return; }
+    }
+  } catch (e){ alert('No se pudo activar el sensor: ' + e.message); return; }
+  level.on = true; level.pitch = level.roll = null; level.last = 0; level.draw = 0;
+  window.addEventListener('deviceorientation', onOrient);
+  $('lvCanvas').getContext('2d').clearRect(0, 0, 96, 96);
+  $('lvTxt').textContent = 'Esperando sensor…';
+  $('level').hidden = false; $('btnLevel').textContent = '📐 Nivel: activo';
+  setTimeout(() => { if (level.on && !level.last) $('lvTxt').textContent = 'Sin datos del sensor: usa un celular y abre la página con https://'; }, 2000);
+}
+$('btnLevel').addEventListener('click', toggleLevel);
+
+/* ---------------- Exportar PDF ---------------- */
+const PDF_COL = { shoulder: '#b8860b', pelvis: '#1f78b4', head: '#e67e22', trunk: '#0e9f7e', knees: '#8e44ad' };
+const ST_RGB = [[46, 160, 90], [225, 170, 0], [214, 52, 52]];
+const ST_TXT = ['Normal', 'Leve', 'Notable'];
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+// Las fuentes estándar del PDF solo admiten Latin-1: se normalizan o eliminan los demás símbolos
+const pdfClean = s => String(s == null ? '' : s)
+  .replace(/[  -  ]/g, ' ')
+  .replace(/≥/g, '>=').replace(/≤/g, '<=').replace(/[−–—]/g, '-')
+  .replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'").replace(/[•▪●]/g, '-')
+  .replace(/…/g, '...').replace(/→/g, '->')
+  .replace(/[^\n -~¡-ÿ]/g, '');
+
+function clearAI(){ state.ai = null; $('aiOut').innerHTML = ''; }
+
+function canvasJpeg(src, max, q){
+  const s = Math.min(1, max / Math.max(src.width, src.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(src.width * s); c.height = Math.round(src.height * s);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(src, 0, 0, c.width, c.height);
+  return { data: c.toDataURL('image/jpeg', q), w: c.width, h: c.height };
+}
+// Gráfica con fondo blanco y colores oscuros, apta para impresión
+function drawChartPdf(sum, thr){
+  const W = 1120, H = 380, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const lim = Math.max(thr * 2, ...sum.map(s => Math.max(...s.dev.map(Math.abs)))) * 1.1;
+  const y = v => H / 2 - v / lim * (H / 2 - 24);
+  g.fillStyle = 'rgba(241,196,15,.25)'; g.fillRect(0, y(thr), W, y(-thr) - y(thr));
+  g.strokeStyle = '#9aa3b5'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
+  g.fillStyle = '#555'; g.font = '22px sans-serif';
+  g.fillText('+' + lim.toFixed(0) + '°', 8, 24); g.fillText('−' + lim.toFixed(0) + '°', 8, H - 8);
+  sum.forEach(s => {
+    g.strokeStyle = PDF_COL[s.k]; g.lineWidth = 3; g.beginPath();
+    s.dev.forEach((d, i) => {
+      const x = s.dev.length > 1 ? i / (s.dev.length - 1) * (W - 16) + 8 : 8;
+      i ? g.lineTo(x, y(d)) : g.moveTo(x, y(d));
+    });
+    g.stroke();
+  });
+  return c;
+}
+
+async function exportPDF(){
+  const J = window.jspdf && window.jspdf.jsPDF;
+  if (!J){ alert('No se pudo cargar la librería de PDF. Revisa tu conexión a internet y recarga la página.'); return; }
+  if (!state.lastMetrics){ alert('Primero analiza una foto, un video o la cámara.'); return; }
+  // Todo se toma al inicio para que imagen y mediciones correspondan al mismo fotograma
+  const view = $('viewSel').value, mode = state.mode, met = state.lastMetrics;
+  const rows = buildRows(met, view);
+  const shot = canvasJpeg(canvas, 1280, 0.9);
+  const summary = (mode !== 'photo' && state.summary) ? state.summary : null;
+  const ai = state.ai;
+  const pat = $('patName').value.trim(), evl = $('evalName').value.trim(), ctxClin = $('clinCtx').value.trim();
+  const btn = $('btnPDF'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando PDF…';
+  try {
+    await new Promise(r => setTimeout(r, 30));
+    const doc = new J({ unit: 'mm', format: 'a4', compress: true });
+    const PW = 210, PH = 297, M = 15, CW = PW - 2 * M, RH = 7.5;
+    let y = 0;
+    const ensure = h => { if (y + h > PH - 20){ doc.addPage(); y = M; } };
+    const put = (s, x, yy, o) => doc.text(pdfClean(s), x, yy, o);
+    const font = (st, sz, rgb) => { doc.setFont('helvetica', st); doc.setFontSize(sz); doc.setTextColor(...(rgb || [30, 34, 45])); };
+    const h2 = s => {
+      ensure(16); y += 4; font('bold', 12, [10, 130, 105]); put(s, M, y);
+      doc.setDrawColor(10, 130, 105); doc.setLineWidth(0.4); doc.line(M, y + 1.8, PW - M, y + 1.8); y += 8;
+    };
+    const para = (s, size, rgb, lh) => {
+      font('normal', size, rgb);
+      doc.splitTextToSize(pdfClean(s), CW).forEach(l => { ensure(lh); put(l, M, y); y += lh; });
+    };
+
+    // Encabezado
+    doc.setFillColor(15, 17, 26); doc.rect(0, 0, PW, 26, 'F');
+    font('bold', 20, [74, 246, 195]); put('MOVCAP', M, 14);
+    font('normal', 10.5, [200, 206, 220]); put('Informe de evaluación postural', M, 21);
+    y = 36;
+    const now = new Date();
+    const modeName = { live: 'Cámara en vivo', video: 'Video importado', photo: 'Foto' }[mode];
+    const viewName = { frontal: 'Frontal', posterior: 'Posterior', lateral: 'Lateral' }[view];
+    const kv = (label, val, x, yy, w) => {
+      font('bold', 9.5, [90, 98, 115]);
+      const lab = pdfClean(label) + ': ';
+      put(lab, x, yy);
+      const lw = doc.getTextWidth(lab);
+      font('normal', 10);
+      put(doc.splitTextToSize(pdfClean(val || '-'), w - lw)[0] || '-', x + lw, yy);
+    };
+    kv('Persona evaluada', pat, M, y, CW / 2 - 4);
+    kv('Fecha', now.toLocaleString('es-BO'), M + CW / 2, y, CW / 2);
+    y += 6;
+    kv('Evaluador', evl, M, y, CW / 2 - 4);
+    kv('Modo / vista', modeName + ' / ' + viewName, M + CW / 2, y, CW / 2);
+    y += 6;
+
+    // Imagen analizada
+    const sc = Math.min(CW / shot.w, 100 / shot.h);
+    const iw = shot.w * sc, ih = shot.h * sc, ix = M + (CW - iw) / 2;
+    ensure(ih + 10);
+    doc.addImage(shot.data, 'JPEG', ix, y, iw, ih);
+    doc.setDrawColor(190, 196, 210); doc.setLineWidth(0.3); doc.rect(ix, y, iw, ih);
+    y += ih + 4;
+    font('normal', 8, [120, 128, 145]);
+    put('Imagen analizada con el esqueleto estimado por MediaPipe Pose', PW / 2, y, { align: 'center' });
+    y += 2;
+
+    // Mediciones
+    h2(mode === 'photo' ? 'Valoración postural' : 'Mediciones del último fotograma analizado');
+    ensure(RH + 2);
+    doc.setFillColor(238, 241, 246); doc.rect(M, y - 5, CW, RH, 'F');
+    font('bold', 9, [90, 98, 115]);
+    put('Medición', M + 8, y); put('Valor', M + 92, y); put('Estado', PW - M - 2, y, { align: 'right' });
+    y += RH;
+    rows.forEach(r => {
+      ensure(RH);
+      doc.setFillColor(...ST_RGB[r.st]); doc.circle(M + 3.5, y - 1.4, 1.5, 'F');
+      font('normal', 10); put(r.label, M + 8, y);
+      font('bold', 10); put(r.text, M + 92, y);
+      font('bold', 9.5, ST_RGB[r.st]); put(ST_TXT[r.st], PW - M - 2, y, { align: 'right' });
+      doc.setDrawColor(225, 229, 238); doc.setLineWidth(0.15); doc.line(M, y + 2.2, PW - M, y + 2.2);
+      y += RH;
+    });
+    y += 1;
+    para('Semáforo orientativo según umbrales propios de cada medición (en las inclinaciones angulares: verde hasta 2°, amarillo hasta 4°, rojo por encima). Valores estimados en 2D desde una sola cámara.', 8, [110, 118, 135], 3.8);
+    const warn = met.vis < 0.5 ? 'Aviso: hombros o caderas poco visibles; las mediciones pueden no ser fiables.'
+      : (view === 'posterior' ? 'Vista posterior: el modelo puede invertir izquierda y derecha; verificar la lateralidad en la imagen.' : '');
+    if (warn) para(warn, 8.5, [170, 110, 0], 4);
+
+    // Resumen de sesión
+    if (summary){
+      ensure(88); // encabezado, gráfica y leyenda juntos
+      h2('Resumen de sesión (micro-compensaciones)');
+      para('Duración analizada: ' + summary.dur.toFixed(1) + ' s · ' + summary.frames + ' fotogramas · umbral de evento: ±' + summary.thr + '°', 9.5, [70, 78, 95], 4.5);
+      y += 1;
+      const cv = drawChartPdf(summary.sum, summary.thr);
+      const ch = CW * cv.height / cv.width;
+      ensure(ch + 12);
+      doc.addImage(cv.toDataURL('image/png'), 'PNG', M, y, CW, ch);
+      doc.setDrawColor(190, 196, 210); doc.setLineWidth(0.3); doc.rect(M, y, CW, ch);
+      y += ch + 5;
+      let lx = M; font('normal', 8.5, [70, 78, 95]);
+      SERIES.forEach(s => {
+        doc.setFillColor(...hexRgb(PDF_COL[s.k])); doc.rect(lx, y - 2.6, 3, 3, 'F');
+        put(s.label, lx + 4.5, y); lx += 10.5 + doc.getTextWidth(pdfClean(s.label));
+      });
+      y += 3;
+      put('Desviación de cada medición respecto a su mediana; banda amarilla = umbral.', M, y + 3);
+      y += 5;
+      const cols = [['Medición', M + 7, 0], ['Mediana', M + 78, 1], ['DE', M + 103, 1], ['Rango', M + 128, 1], ['Eventos', M + 154, 1], ['Pico', PW - M - 2, 1]];
+      ensure(RH * 2);
+      doc.setFillColor(238, 241, 246); doc.rect(M, y - 5, CW, RH, 'F');
+      font('bold', 9, [90, 98, 115]);
+      cols.forEach(c => put(c[0], c[1], y, c[2] ? { align: 'right' } : undefined));
+      y += RH;
+      summary.sum.forEach(s => {
+        ensure(RH);
+        doc.setFillColor(...hexRgb(PDF_COL[s.k])); doc.rect(M + 2, y - 3, 3, 3, 'F');
+        font('normal', 10); put(s.label, M + 7, y);
+        const vals = [s.med.toFixed(1) + '°', s.sd.toFixed(1) + '°', s.range.toFixed(1) + '°', String(s.events), (s.peak >= 0 ? '+' : '') + s.peak.toFixed(1) + '°'];
+        vals.forEach((v, i) => {
+          if (i === 3 && s.events > 0) font('bold', 10, [200, 90, 20]); else font('normal', 10);
+          put(v, cols[i + 1][1], y, { align: 'right' });
+        });
+        doc.setDrawColor(225, 229, 238); doc.setLineWidth(0.15); doc.line(M, y + 2.2, PW - M, y + 2.2);
+        y += RH;
+      });
+      y += 1;
+      para('Evento: tramo de al menos 3 fotogramas en que la medición se aleja de su mediana más que el umbral. DE: desviación estándar. Pico: mayor desviación respecto a la mediana.', 8, [110, 118, 135], 3.8);
+      if (mode === 'live' && state.tiltMax != null) para('Inclinación máxima del dispositivo durante el registro: ' + state.tiltMax.toFixed(1) + '° (recomendado: menos de 3°).', 8.5, state.tiltMax > 3 ? [170, 110, 0] : [70, 78, 95], 4);
+    }
+
+    // Contexto clínico
+    if (ctxClin){
+      h2('Contexto clínico aportado');
+      para(ctxClin, 10, null, 4.8);
+    }
+
+    // Informe de IA
+    if (ai && ai.text){
+      h2(ai.soap ? 'Nota de evolución SOAP (borrador asistido por IA)' : 'Informe asistido por IA');
+      para('Generado con ' + (ai.prov === 'gemini' ? 'Gemini' : 'Claude') + ' (' + ai.model + ') el ' + ai.when.toLocaleString('es-BO') + ', a partir de la imagen y las mediciones enviadas. Apoyo al criterio profesional; no es un diagnóstico.', 8, [110, 118, 135], 3.8);
+      y += 2;
+      ai.text.split('\n').forEach(line => {
+        let t = line.trim(), bold = false;
+        if (!t){ y += 2.5; return; }
+        const hm = t.match(/^#{1,4}\s*(.+)$/), wm = t.match(/^\*\*(.+?)\*\*:?$/);
+        if (hm){ t = hm[1]; bold = true; } else if (wm){ t = wm[1]; bold = true; }
+        t = t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/^[*•]\s+/, '- ');
+        font(bold ? 'bold' : 'normal', 10, bold ? [10, 100, 85] : null);
+        if (bold) y += 1;
+        doc.splitTextToSize(pdfClean(t), CW).forEach(l => { ensure(4.8); put(l, M, y); y += 4.8; });
+      });
+    }
+
+    // Guía de lectura
+    ensure(60);
+    h2('Cómo leer este informe');
+    [
+      'Hombros, pelvis, cabeza y rodillas: el valor es la inclinación de la línea que une ambos puntos respecto a la horizontal. 0° es nivelado y el texto indica qué lado queda más alto. Como referencia, 3° en hombros separados 40 cm equivalen a unos 2 cm de diferencia de altura.',
+      'Las pequeñas asimetrías son frecuentes en personas sin síntomas. Su relevancia depende de la clínica y de la exploración física: interpretar siempre junto con ellas. Los umbrales del semáforo son orientativos, no estándares validados.',
+      'Precisión: cámara nivelada, a la altura de la cadera, a 2-3 m, con la persona de cuerpo completo y sin rotación. Inclinar la cámara 2° o girar el cuerpo altera el resultado; el error típico del método es de 1-2°. Para comparar evaluaciones, repetir las mismas condiciones.',
+      !summary ? '' : 'Resumen de sesión: la mediana refleja la postura sostenida durante el gesto; la DE y el rango, cuánto varía. Mediana alta con pocos eventos indica asimetría sostenida; eventos concentrados en una fase del movimiento sugieren compensación en esa fase.'
+    ].filter(Boolean).forEach(t => { para('- ' + t, 8.5, [70, 78, 95], 4); y += 1.5; });
+
+    // Pie de página en todas las hojas
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++){
+      doc.setPage(i);
+      doc.setDrawColor(200, 205, 215); doc.setLineWidth(0.2); doc.line(M, PH - 16, PW - M, PH - 16);
+      font('normal', 7.5, [120, 128, 145]);
+      doc.splitTextToSize(pdfClean('MOVCAP · Mediciones estimadas en 2D mediante visión artificial (MediaPipe Pose). Herramienta de apoyo; no constituye un diagnóstico médico.'), CW - 30)
+        .forEach((l, j) => put(l, M, PH - 12 + j * 3.4));
+      put('Página ' + i + ' de ' + n, PW - M, PH - 12, { align: 'right' });
+    }
+
+    const slugRaw = pat.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
+    const p2 = v => String(v).padStart(2, '0');
+    doc.save('MOVCAP' + (slugRaw ? '_' + slugRaw : '') + '_' + now.getFullYear() + p2(now.getMonth() + 1) + p2(now.getDate()) + '_' + p2(now.getHours()) + p2(now.getMinutes()) + '.pdf');
+  } catch (e){
+    console.error(e);
+    alert('No se pudo generar el PDF: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+$('btnPDF').addEventListener('click', exportPDF);
+
+/* ---------------- Inicio ---------------- */
+setMode('live');
+</script>
+</body>
+</html>
